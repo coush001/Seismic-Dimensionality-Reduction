@@ -71,3 +71,5 @@ venv.bak/
 .ipynb_checkpoints/
 .vscode/
 __pycache__/
+
+.npy
