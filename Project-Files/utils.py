@@ -4,7 +4,6 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import scipy
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
 from torch.autograd import Variable
 import random
 
@@ -83,6 +82,7 @@ def flatten_on_horizon(amplitude, horizon, twt, top_add=12, below_add=52):
     for i in range(horizon.shape[0]):
         hrz_idx = [np.abs(twt-val).argmin() for val in horizon[i, :]]
         for j in range(horizon.shape[1]):
+            print(i, j)
             traces[i, j, :] = amplitude[hrz_idx[j]-top_add:hrz_idx[j]+below_add, i, j]
 
     return traces
@@ -148,3 +148,74 @@ class VAE(nn.Module):
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
         return self.decode(z), mu, logvar, z
+    
+    
+def loss_function(recon_x, x, mu, logvar, window_size=64):
+    criterion_mse = nn.MSELoss(size_average=False)
+    MSE = criterion_mse(recon_x.view(-1, 2, window_size), x.view(-1, 2, window_size))
+
+    # see Appendix B from VAE paper:
+    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+    # https://arxiv.org/abs/1312.6114
+    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+    return MSE + KLD    
+    
+# Function to perform one epoch of training
+def train(epoch, model, optimizer, train_loader, cuda=False, log_interval=10):
+    model.train()
+    train_loss = 0
+    for batch_idx, (data, _) in enumerate(train_loader):
+        data = Variable(data)
+
+        if cuda:
+            data = data.cuda()
+
+        optimizer.zero_grad()
+        recon_batch, mu, logvar, _ = model(data)
+        loss = loss_function(recon_batch, data, mu, logvar)
+        loss.backward()
+        train_loss += loss.item() * data.size(0)
+        optimizer.step()
+        if batch_idx % log_interval == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loader.dataset),
+                       100. * batch_idx / len(train_loader),
+                       loss.item() * data.size(0) / len(train_loader.dataset)))
+
+    train_loss /= len(train_loader.dataset)
+    print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, train_loss))
+    return train_loss
+
+
+# Function to perform evaluation of data on the model, used for testing
+def test(epoch, model, test_loader, cuda=False, log_interval=10):
+    model.eval()
+    test_loss = 0
+    with torch.set_grad_enabled(False):
+        for i, (data, _) in enumerate(test_loader):
+            if cuda:
+                data = data.cuda()
+            data = Variable(data)
+            recon_batch, mu, logvar, _ = model(data)
+            test_loss += loss_function(recon_batch, data, mu, logvar).item() * data.size(0)
+
+        test_loss /= len(test_loader.dataset)
+        print('====> Test set loss: {:.4f}'.format(test_loss))
+    return test_loss
+
+
+# Function to forward_propagate a set of tensors and receive back latent variables and reconstructions
+def forward_all(model, all_loader, cuda=False):
+    model.eval()
+    reconstructions, latents = [], []
+    with torch.set_grad_enabled(False):
+        for i, (data, _) in enumerate(all_loader):
+            if cuda:
+                data = data.cuda()
+            data = Variable(data)
+            recon_batch, mu, logvar, z = model(data)
+            reconstructions.append(recon_batch.cpu())
+            latents.append(z.cpu())
+    return torch.cat(reconstructions, 0), torch.cat(latents, 0)

@@ -1,46 +1,25 @@
-from main import MasterClass, loss_function, train, test, forward_all
+from DataHolder import DataHolder, Processor
+from ModelAgent import UMAP, VAE_model
 
+### Client loader
+Glitne = DataHolder("Glitne", [1300, 1502, 2], [1500, 2002, 2])
+Glitne.add_segy('near', '../data/3d_nearstack.sgy');
+Glitne.add_segy('far', '../data/3d_farstack.sgy');
+Glitne.add_horizon('top_heimdal', '../data/Top_Heimdal_subset.txt')
+Glitne.add_well('well_1', 36, 276//2)
 
-object = MasterClass('TEST_OBJECT')
+### Client data factory - would run diffetent instances of Processing with different operations
+# instance of processing creates options for many outputs
+Data = Processor(Glitne.near, Glitne.far, Glitne.twt)
+processing_a = Data([Glitne.horizons['top_heimdal'], 12,52], [10, 20])
+processing_b = Data([Glitne.horizons['top_heimdal'], 10,10], [10, 20])
 
-# Loading Data
-object.load_near('../data/3d_nearstack.sgy')
-object.load_far('../data/3d_farstack.sgy')
-object.load_horizon('../data/Top_Heimdal_subset.txt')
+### Client model creator/run - run many different instances of the VAE with different parameters
+# an instance of a model is one model of dim reduction
+UMAP_a = UMAP(processing_a)
+UMAP_a1 = UMAP_a.reduce(n_neighbors=10)
+UMAP_a2 = UMAP_a.reduce(n_neighbors=100)
 
-object.plot_horizon()
-
-# add well location
-object.add_well('well_1', 36, 276//2)
-
-# print well dictionary and plot
-# print("Dictionary of wells", object.wells)
-# object.plot_horizon_well('well_1')
-
-# flatten
-object.flatten_traces()
-
-# normalise and reshape to 2d arrays
-object.normalise_from_well()
-#
-# # linear regression to find FF:
-object.get_FF()
-
-# Stack the near and far on top of each-other
-object.stack_traces()
-
-# # Umap dimensionality reduction:
-# object.umap()
-# object.plot_umap()
-
-print("UMAP Script run successfully")
-
-print("Start VAE testing")
-
-object.create_dataloader()
-# object.train_vae()
-object.run_vae()
-object.vae_umap()
-
-print("VAE finished no bugs")
-
+# Run instance of VAE model
+VAE_a = VAE_model(processing_a)
+VAE_a.reduce()
